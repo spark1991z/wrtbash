@@ -12,5 +12,5 @@ for x in $ports_array; do
 #       echo "LAN$x: $link";                                                                         
         [ "$link" == "up" ] && echo 1 > "$leds$real"/brightness || echo 0 > "$leds$real"/brightness; 
 done                                                                                                 
-#sleep 1;                                                                                          
+sleep 1;                                                                                          
 done;
