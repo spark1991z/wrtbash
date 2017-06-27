@@ -1,7 +1,6 @@
 #!/bin/sh                                                                                            
 set +x;                                                                                              
-                                                                                                     
-                                                                                                     
+
 sw="swconfig dev eth0"                                                                               
 leds="/sys/class/leds/F@ST2704N:green:lan"                                                           
 ports_array="0 1 2 3"                                                                                
