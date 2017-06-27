@@ -1,0 +1,223 @@
+#!/bin/sh
+set +x;
+
+rzd1="---------------------------";
+rzd2="-------------------";
+
+echo "$rzd1
+SetWAN v6.5 (by spark1991z)
+$rzd1";
+
+isnum(){
+	if [ "_$1" != "_" ]; then
+		num=$1;
+		[ ! -z "${num##*[!0-9]*}" ] && echo 1 || echo 0;
+		exit;
+	fi
+	echo 2;
+}
+
+usage(){
+echo "Usage:
+        setwan|sw
+            [proto] (static|dhcp|pppoe)
+             [args] (required)
+          [vlan-id] (2-4094)
+	 [vendorid] (spec)
+        $rzd2
+        static|s
+           [ipaddr] (1.0.0.1-223.255.255.254)
+          [netmask] (0.0.0.0-255.255.255.255|0-32)
+	  [gateway] (1.0.0.1-223.255.255.254)
+	      [dns] (1.0.0.1-223.255.255.254)
+        dhcp|d
+        pppoe|p
+         [username] (needed)
+         [password] (needed)
+$rzd1
+Examples:
+        setwan|sw static|s 1.0.0.2 255.255.255.0|24 1.0.0.1 8.8.8.8
+	setwan|sw static|s 1.0.0.2 255.255.255.0|24 1.0.0.1 8.8.8.8 nokia3310
+        setwan|sw static|s 1.0.0.2 255.255.255.0|24 1.0.0.1 8.8.8.8 101
+	setwan|sw static|s 1.0.0.2 255.255.255.0|24 1.0.0.1 8.8.8.8 101 nokia3310
+        setwan|sw dhcp|d
+	setwan|sw dhcp|d nokia3310
+        setwan|sw dhcp|d 101
+	setwan|sw dhcp|d 101 nokia3310
+        setwan|sw pppoe|p superuser secretpass
+	setwan|sw pppoe|p superuser secretpass nokia3310
+        setwan|sw pppoe|p superuser secretpass 101
+	setwan|sw pppoe|p superuser secretpass 101 nokia3310";
+}
+
+clean(){
+	last=$(uci get network.wan.proto);
+	if [ "$last" != "$1" ]; then
+		case "$last" in
+			"static")
+				uci del network.wan.ipaddr;
+				uci del network.wan.netmask;
+				uci del network.wan.gateway;
+				uci del network.wan.dns;
+				;;
+			"pppoe")
+				uci del network.wan.username;
+				uci del network.wan.password;
+				;;
+		esac;
+		echo "Cleaning exists configuration...";
+	fi
+}
+
+vlan(){
+	in=$(isnum $1);
+	vid="";
+	if [ $in -ne 2 ]; then
+		if [ $in -eq 0 ] || [ $1 -lt 2 ] || [ $1 -gt 4094 ]; then usage; exit; fi
+		if [ $in -eq 1 ]; then
+			if [ "$(uci show network.lan | grep ifname)" != "" ] && [ $1 -eq $(uci get network.lan.ifname | cut -d " " -f 1 | cut -d "." -f 2) ]; then
+				echo "VLAN $1 already used in local network!";
+				exit;
+			fi
+			vid="."$1;	
+		fi
+	fi
+	echo "Setting up 'eth0$vid' interface...";
+	uci set network.wan.ifname=eth0$vid;
+}
+vendorid="";
+case "$1" in
+	"dhcp"|"d")
+		if [ $(isnum $2) -eq 0 ]; then
+			vendorid=$2;
+			vlan "";
+		else
+			vlan $2;
+			[ "_$3" != "_" ] && vendorid=$3;
+		fi
+		clean "dhcp";
+		uci set network.wan.proto=dhcp;
+		;;
+	"pppoe"|"p")
+		if [ "_$2" == "_" ] || [ "_$3" == "_" ]; then usage; exit; fi
+		if [ $(isnum $4) -eq 0 ]; then
+			vendorid=$4;
+			vlan "";
+		else
+			vlan $4;
+			[ "_$5" != "_" ] && vendorid=$5;
+		fi
+		clean "pppoe";
+		uci set network.wan.proto=pppoe;
+		uci set network.wan.username=$2;
+		uci set network.wan.password=$3;
+		;;
+	"static"|"s")
+		if [ "_$2" == "_" ] || [ "_$3" == "_" ] || [ "_$4" == "_" ] || [ "_$5" == "_" ]; then usage; exit; fi
+		ipa=$(echo $2 | cut -d "." -f 1);
+		ipb=$(echo $2 | cut -d "." -f 2);
+		ipc=$(echo $2 | cut -d "." -f 3);
+		ipd=$(echo $2 | cut -d "." -f 4);
+
+		if [ $(isnum $ipa) -ne 1 ] || [ $(isnum $ipb) -ne 1 ] || [ $(isnum $ipc) -ne 1 ] || [ $(isnum $ipd) -ne 1 ] ||
+		   [ $ipa -lt 1 ] || [ $ipa -gt 223 ] || [ $ipb -lt 0 ] || [ $ipb -gt 255 ] || [ $ipc -lt 0 ] ||
+		   [ $ipc -gt 255 ] || [ $ipd -lt 1 ] || [ $ipd -gt 254 ]; then usage; exit; fi
+		netmask="";
+		if [ $(isnum $3) -eq 1 ]; then
+			case $3 in
+				0) netmask="0.0.0.0"; ;;
+				1) netmask="128.0.0.0"; ;;
+				2) netmask="192.0.0.0"; ;;
+				3) netmask="224.0.0.0"; ;;
+				4) netmask="240.0.0.0"; ;;
+				5) netmask="248.0.0.0"; ;;
+				6) netmask="252.0.0.0"; ;;
+				7) netmask="254.0.0.0"; ;;
+				8) netmask="255.0.0.0"; ;;
+				9) netmask="255.128.0.0"; ;;
+				10) netmask="255.192.0.0"; ;;
+				11) netmask="255.224.0.0"; ;;
+				12) netmask="255.240.0.0"; ;;
+				13) netmask="255.248.0.0"; ;;
+				14) netmask="255.252.0.0"; ;;
+				15) netmask="255.254.0.0"; ;;
+				16) netmask="255.255.0.0"; ;;
+				17) netmask="255.255.128.0"; ;;
+				18) netmask="255.255.192.0"; ;;
+				19) netmask="255.255.224.0"; ;;
+				20) netmask="255.255.240.0"; ;;
+				21) netmask="255.255.248.0"; ;;
+				22) netmask="255.255.252.0"; ;;
+				23) netmask="255.255.254.0"; ;;
+				24) netmask="255.255.255.0"; ;;
+				25) netmask="255.255.255.128"; ;;
+				26) netmask="255.255.255.192"; ;;
+				27) netmask="255.255.255.224"; ;;
+				28) netmask="255.255.255.240"; ;;
+				29) netmask="255.255.255.248"; ;;
+				30) netmask="255.255.255.252"; ;;
+				31) netmask="255.255.255.254"; ;;
+				32) netmask="255.255.255.255"; ;;
+				*) usage; exit; ;;
+			esac
+		else
+			nma=$(echo $3 | cut -d "." -f 1);
+			nmb=$(echo $3 | cut -d "." -f 2);
+			nmc=$(echo $3 | cut -d "." -f 3);
+			nmd=$(echo $3 | cut -d "." -f 4);
+			nm="$nma $nmb $nmc $nmd";
+
+			for n in $nm; do
+				if [ $(isnum $n) -ne 1 ] || [ $n -lt 0 ] || [ $n -gt 255 ]; then usage; exit; fi
+			done
+			netmask=$3;
+		fi
+		ipa=$(echo $4 | cut -d "." -f 1);
+                ipb=$(echo $4 | cut -d "." -f 2);
+                ipc=$(echo $4 | cut -d "." -f 3);
+                ipd=$(echo $4 | cut -d "." -f 4);
+
+                if [ $(isnum $ipa) -ne 1 ] || [ $(isnum $ipb) -ne 1 ] || [ $(isnum $ipc) -ne 1 ] || [ $(isnum $ipd) -ne 1 ] ||
+                   [ $ipa -lt 1 ] || [ $ipa -gt 223 ] || [ $ipb -lt 0 ] || [ $ipb -gt 255 ] || [ $ipc -lt 0 ] ||
+                   [ $ipc -gt 255 ] || [ $ipd -lt 1 ] || [ $ipd -gt 254 ]; then usage; exit; fi
+                
+
+		ipa=$(echo $5 | cut -d "." -f 1);
+                ipb=$(echo $5 | cut -d "." -f 2);
+                ipc=$(echo $5 | cut -d "." -f 3);
+                ipd=$(echo $5 | cut -d "." -f 4);
+
+                if [ $(isnum $ipa) -ne 1 ] || [ $(isnum $ipb) -ne 1 ] || [ $(isnum $ipc) -ne 1 ] || [ $(isnum $ipd) -ne 1 ] ||
+                   [ $ipa -lt 1 ] || [ $ipa -gt 223 ] || [ $ipb -lt 0 ] || [ $ipb -gt 255 ] || [ $ipc -lt 0 ] ||
+                   [ $ipc -gt 255 ] || [ $ipd -lt 1 ] || [ $ipd -gt 254 ]; then usage; exit; fi
+
+		if [ $(isnum $6) -eq 0 ]; then
+			vendorid=$6;
+			vlan "";
+		else
+			vlan $6;
+			[ "_$7" != "_" ] && vendorid=$7;
+		fi
+		clean "static";
+		uci set network.wan.proto=static;
+		uci set network.wan.ipaddr=$2;
+		uci set network.wan.netmask=$netmask;
+		uci set network.wan.gateway=$4;
+		uci set network.wan.dns=$5;
+		;;
+	*) usage; exit; ;;
+esac;
+echo "Setting up vendorId...";
+uci set network.wan.vendorid=$vendorid;
+echo $rzd1;
+uci show network.wan;
+echo $rzd1;
+echo "Commiting current configuration...";
+uci commit network.wan;
+echo "Switching down WAN port...";
+ifconfig eth0 down;
+echo "Reloading network configuration...";
+/etc/init.d/network reload;
+echo "Switching up WAN port...";
+ifconfig eth0 up;
+echo "Done.";
